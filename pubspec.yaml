@@ -14,7 +14,7 @@ dependencies:
     sdk: flutter
   fue_style:
     git: git://github.com/naeil/fue-style.git
-  html: ^0.13.3+2
+  html: ^0.13.3
 
 dev_dependencies:
   test: ^1.2.0
