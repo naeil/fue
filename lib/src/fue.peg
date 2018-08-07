@@ -1,0 +1,674 @@
+%{
+part of fue;
+
+}%
+
+
+#members
+{
+
+  static Expression parse(src){
+    return (new Parser(src)).parse_Start();
+  }
+
+  static Expression parseForExpression(src){
+    return (new Parser(src)).parse_forExpression();
+  }
+
+  static Expression parseTemplate(src){
+    return (new Parser(src)).parse_Template();
+  }
+
+  _lookupIdentify(String name){
+    print("lookup : " + name);
+    return name;
+  }
+
+
+  _assign(String name, value){
+    print(name + ":" + value);
+  }
+
+
+  buildLogicalExpression(head, tail) { 
+    if(tail.length == 0){ 
+      return head; 
+    } 
+
+    var cnt = 0; 
+      
+    if(tail.length == 1){
+      return createBinaryExpression(tail[0][1], head, tail[0][3], true);
+    }
+
+    return tail.reduce((result, element) { 
+      return createBinaryExpression(element[1], cnt++ == 0 ? createBinaryExpression(tail[0][1], head, tail[0][3], true) : result, element[3], true );
+    }); 
+  }
+   
+  createBinaryExpression(op, left, right, [logical = false]){ 
+    return logical ? new LogicalExpression(op, left, right) : new BinaryExpression(op, left, right);
+  } 
+
+
+  buildBinaryExpression(head, tail) { 
+    if(tail.length == 0){ 
+      return head; 
+    } 
+
+    if(tail.length == 1){
+      return createBinaryExpression(tail[0][1], head, tail[0][3]);
+    }
+
+    var cnt = 0; 
+
+    return tail.reduce((result, element) { 
+      return createBinaryExpression(element[1], cnt++ == 0 ? createBinaryExpression(tail[0][1], head, tail[0][3]) : result, element[3] );
+    }); 
+  } 
+
+  _buildList(a, b){
+      var rtn = <Expression>[a];
+
+      if(b == null){
+        return rtn;
+      }
+
+      b.forEach((v)=>rtn.add(v));
+      return rtn; 
+  }
+
+
+  _buildMap(a, b){
+    
+    var rtn = <String, Expression>{};
+    rtn[a[0]] = a[1];
+    
+    if(b != null){
+      for(var el in b){
+        rtn[el[0]] = el[1];
+      }
+    }
+
+    return rtn;
+  }
+
+  _buildMemberExpression(a, b){
+
+    var obj = a;
+
+    for(var i in b){
+      obj = new MemberExpression(obj, i, true);
+    }
+
+    return obj;
+  }
+
+  _buildCall(a, b){
+    var rtn = new CallExpression(a[0], a[2] == null ? [] : a[2]);
+    
+    for(var i in b){
+
+      if(i[0] != null){
+        rtn = _buildCall([rtn,"",i[0]], null);
+      }else if(i[1] != null){
+        rtn = _buildMemberExpression(rtn, [i[1]]);
+      }else if(i[2] != null){
+        rtn = _buildMemberExpression(rtn, [i[2]]);
+      }
+
+    }
+
+    return rtn;
+  }
+
+  _buildTemplateExpress(list){
+
+    if(list.length == 1){
+      return list[0];
+    }
+
+    var rtn = createBinaryExpression(BinaryOperator.Plus, list[0], list[1]);
+
+    for(var x = 2; x < list.length; x++){
+      rtn = createBinaryExpression(BinaryOperator.Plus, rtn, list[x]);
+    }
+
+    return rtn;
+  }
+
+  _buildLambda(args, body){
+    return new LambdaExpression(args, body);
+  }
+
+  static const emptyString = const Literal("");
+}
+
+### Sentences (nonterminals) ###
+
+
+
+Start <-
+  WS Expression WS  EOF { $$ = $2; }
+
+expressions
+  <- WS Expression WS EOF { $$ = $2; }
+
+
+Expression
+ <- AssignmentExpression (__ "," __ AssignmentExpression { $$ = $4; } )* {
+      return $2.length > 0
+        ? new SequenceExpression(_buildList($1, $2))
+        : $1;
+    }
+
+SingleExpression
+ <- WS AssignmentExpression WS { $$ = $2; }
+
+
+LambdaExpression
+ <- WS '(' WS PropertyLiteralList? WS ')' WS '=>' WS SingleExpression         { $$ = _buildLambda($4 == null ? [] : $4, $10); }
+  / WS PropertyLiteral WS '=>' WS SingleExpression   { $$ = _buildLambda([$2], $6); }
+
+PropertyLiteralList
+ <- WS PropertyLiteral WS (',' WS PropertyLiteral WS { $$= $3; } )* { $$ = [$2]..addAll($4); }
+
+MemberExpression
+  <-PrimaryExpression WS
+    (
+        __ "[" __ Expression __ "]" {
+          $$ = $4;
+        }
+      / __ "." __ PropertyLiteral {
+          $$ = $4;
+        }
+    )* {
+      $$ = _buildMemberExpression($1, $3);
+    }
+
+
+CallExpression
+  <- (
+      MemberExpression __ Arguments
+    )
+    (
+      __ Arguments                    { $$ = [$1]; }
+      / __ "[" __ Expression __ "]"   { $$ = [null,$4]; }    
+      / __ "." __ PropertyLiteral     { $$ = [null,null,$4]; }
+    )*
+    {
+      $$ = _buildCall($1, $2);
+      /*
+      if($2 == null){
+        $$ = $1;
+      }else{
+        for(var i in $2){
+          if(i[0] != null){
+            $$ = _buildCall([$1, i[0] != null ? i[0] : []]);
+          }else if(i[1] != null){
+            $$ = _buildMemberExpression($1, i[1]);
+          }else if(i[2] != null){
+            $$ = _buildMemberExpression($1, i[2]);
+          }
+        }
+      }
+      */
+    }
+
+Arguments
+  <- "(" __ (ArgumentList __ { $$ = $1; } )? ")" {
+      $$ = $3;
+    }
+
+ArgumentList
+  <- AssignmentExpression (__ "," __ AssignmentExpression { $$ = $4; } )* {
+      $$ = [$1]..addAll($2);
+    }    
+
+
+ForExpressionDecl
+ <- WS Identifier { $$ = { "value" : $2.name, "index":"" }; }
+  / WS "(" WS Identifier WS "," WS Identifier WS ")" { $$ = { "value" : $4.name, "index":$8.name }; }
+  / WS "(" WS Identifier WS ":" WS Identifier WS ")" { $$ = { "value" : $8.name, "index":$4.name }; }
+  
+
+forExpression
+ <- ForExpressionDecl WS "in" WS AssignmentExpression { $$ = new ForExpression($1["value"], $1["index"], $5);  }
+
+
+Template
+ <- TemplateUnit* { $$ = _buildTemplateExpress($1); }
+
+TemplateUnit
+ <-  BS '{{' WS (AssignmentExpression { $$ = new BinaryExpression(BinaryOperator.Plus, emptyString, $1); })  WS '}}' { $$ = $1.length > 0 ? new BinaryExpression(BinaryOperator.Plus, new Literal($1.join()), $4) : $4; }
+  / TemplateText
+  / BS '{'!'{' BS { $$ = new Literal($1.join('') + $2[0] + $3.join('')); }
+
+TemplateText
+ <- BS (.![{] { $$ = $1; } )+ BS { $$ = new Literal($1.join('') + $2.join('') + $3.join('')); }
+
+
+PrimaryExpression
+ <- "this" { return new ThisExpression(); }
+#  / WS Expression WS '.' WS PropertyLister WS { $$ = new MemberExpression($1, $5, false); }
+  / LambdaExpression
+  / Identifier
+  / Literal
+  / ObjectLiteral
+  / ArrayLiteral
+  / "(" WS Expression WS ")" { return $3; }
+
+ReservedWord 
+ <- "this"  
+  / "null"
+  / "true"
+  / "false"
+
+
+Identifier <-
+  !ReservedWord [a-zA-Z_$][a-zA-Z0-9_$]* WS  { $$ = new Identifier($2 + $3.join('')); }
+
+PropertyLiteral <-
+  !ReservedWord [a-zA-Z_$][a-zA-Z0-9_$]* WS  { $$ = new Literal($2 + $3.join('')); }
+
+
+Literal
+ <- NullLiteral
+  / BooleanLiteral
+  / NumericLiteral
+  / StringLiteral
+
+NullLiteral
+ <- "null"              { $$ = new Literal(null);}
+
+BooleanLiteral
+ <- "true"              { $$ = new Literal(true);}
+  / "false"             { $$ = new Literal(false);}
+
+NumericLiteral
+ <- NUMBER
+
+
+LeftHandSideExpression
+  <- CallExpression
+  / MemberExpression
+
+PostfixExpression
+ <- LeftHandSideExpression _ PostfixOperator {
+      return new UpdateExpression($3, $1, false);
+    }
+  / LeftHandSideExpression
+
+PostfixOperator
+ <- "++"        { $$ = UpdateOperator.PlusPlus; }
+  / "--"        { $$ = UpdateOperator.MinusMinus; }
+
+UnaryExpression
+ <- PostfixExpression
+  / UnaryOperator __ UnaryExpression {
+
+      if($1 == UpdateOperator.PlusPlus || $1 == UpdateOperator.MinusMinus){
+        return new UpdateExpression($1, $3, true);
+      }
+
+      return new UnaryExpression($1, $3, true);
+
+    }
+
+UnaryOperator
+ <- "++"      { $$ = UpdateOperator.PlusPlus; }
+  / "--"      { $$ = UpdateOperator.MinusMinus; }
+  / "+" !"="  { $$ = UnaryOperator.Plus; }
+  / "-" !"="  { $$ = UnaryOperator.Minus; }
+  / "~"       { $$ = UnaryOperator.BitNot; }
+  / "!"       { $$ = UnaryOperator.Not; }
+
+MultiplicativeExpression
+ <- UnaryExpression
+    (__ MultiplicativeOperator __ UnaryExpression)*
+    { return buildBinaryExpression($1, $2); }
+
+MultiplicativeOperator
+ <- "*" !"="  { $$ = BinaryOperator.Multiply; }
+  / "/" !"="  { $$ = BinaryOperator.Divide; }
+  / "%" !"="  { $$ = BinaryOperator.Modulus; }
+
+AdditiveExpression
+ <- MultiplicativeExpression
+    (__ AdditiveOperator __ MultiplicativeExpression)*
+    { return buildBinaryExpression($1, $2); }
+
+AdditiveOperator
+ <- "+" ![+=]   { $$ = BinaryOperator.Plus; }
+  / "-" ![-=]   { $$ = BinaryOperator.Minus; }
+
+ShiftExpression
+ <- AdditiveExpression
+    (__ ShiftOperator __ AdditiveExpression)*
+    { return buildBinaryExpression($1, $2); }
+
+ShiftOperator
+ <- "<<"  !"="  { $$ = BinaryOperator.LeftShiftArithmetic; }
+  / ">>>" !"="  { $$ = BinaryOperator.RightShiftLogical; }
+  / ">>"  !"="  { $$ = BinaryOperator.RightShiftArithmetic; }
+
+RelationalExpression
+ <- ShiftExpression
+    (__ RelationalOperator __ ShiftExpression)*
+    { return buildBinaryExpression($1, $2); }
+
+RelationalOperator
+ <- "<="        { $$ = BinaryOperator.LessThanEquals; }
+  / ">="        { $$ = BinaryOperator.GreaterThanEquals; }
+  / "<" !"<"    { $$ = BinaryOperator.LessThan; }
+  / ">" !">"    { $$ = BinaryOperator.MoreThan; }
+
+RelationalExpressionNoIn
+ <- ShiftExpression
+    (__ RelationalOperatorNoIn __ ShiftExpression)*
+    { return buildBinaryExpression($1, $2); }
+
+RelationalOperatorNoIn
+ <- "<="        { $$ = BinaryOperator.LessThanEquals; }
+  / ">="        { $$ = BinaryOperator.GreaterThanEquals; }
+  / "<" !"<"    { $$ = BinaryOperator.LessThan; }
+  / ">" !">"    { $$ = BinaryOperator.MoreThan; }
+
+EqualityExpression
+ <- RelationalExpression
+    (__ EqualityOperator __ RelationalExpression)*
+    { return buildBinaryExpression($1, $2); }
+
+EqualityExpressionNoIn
+ <- RelationalExpressionNoIn
+    (__ EqualityOperator __ RelationalExpressionNoIn)*
+    { return buildBinaryExpression($1, $2); }
+
+EqualityOperator
+ <- "==="       { $$ = BinaryOperator.IdentityEquals; }
+  / "!=="       { $$ = BinaryOperator.IdentityNotEquals; }
+  / "=="        { $$ = BinaryOperator.Equals; }
+  / "!="        { $$ = BinaryOperator.NotEquals; }
+
+BitwiseANDExpression
+ <- EqualityExpression
+    (__ BitwiseANDOperator __ EqualityExpression)*
+    { return buildBinaryExpression($1, $2); }
+
+BitwiseANDExpressionNoIn
+ <- EqualityExpressionNoIn
+    (__ BitwiseANDOperator __ EqualityExpressionNoIn)*
+    { return buildBinaryExpression($1, $2); }
+
+BitwiseANDOperator
+ <- "&" ![&=]   { $$ = BinaryOperator.BitAnd; }
+
+BitwiseXORExpression
+ <- BitwiseANDExpression
+    (__ BitwiseXOROperator __ BitwiseANDExpression)*
+    { return buildBinaryExpression($1, $2); }
+
+BitwiseXORExpressionNoIn
+ <- BitwiseANDExpressionNoIn
+    (__ BitwiseXOROperator __ BitwiseANDExpressionNoIn)*
+   { return buildBinaryExpression($1, $2); }
+
+BitwiseXOROperator
+ <- "^" !"="    { $$ = BinaryOperator.BitXOr; }
+
+BitwiseORExpression
+ <- BitwiseXORExpression
+    (__ BitwiseOROperator __ BitwiseXORExpression)*
+    { return buildBinaryExpression($1, $2); }
+
+BitwiseORExpressionNoIn
+ <- BitwiseXORExpressionNoIn
+    (__ BitwiseOROperator __ BitwiseXORExpressionNoIn)*
+    { return buildBinaryExpression($1, $2); }
+
+BitwiseOROperator
+ <- "|" ![|=]   { $$ = BinaryOperator.BitOr; }
+
+LogicalANDExpression
+ <- BitwiseORExpression
+    (__ LogicalANDOperator __ BitwiseORExpression)*
+    { return buildLogicalExpression($1, $2); }
+
+LogicalANDExpressionNoIn
+ <- BitwiseORExpressionNoIn
+    (__ LogicalANDOperator __ BitwiseORExpressionNoIn)*
+    { return buildLogicalExpression($1, $2); }
+
+LogicalANDOperator
+ <- "&&"      { $$ = LogicalOperator.And; }
+
+LogicalORExpression
+ <- LogicalANDExpression
+    (__ LogicalOROperator __ LogicalANDExpression)*
+    { return buildLogicalExpression($1, $2); }
+
+LogicalORExpressionNoIn
+ <- LogicalANDExpressionNoIn
+    (__ LogicalOROperator __ LogicalANDExpressionNoIn)*
+    { return buildLogicalExpression($1, $2); }
+
+LogicalOROperator
+ <- "||"    { $$ = LogicalOperator.Or; }
+
+ConditionalExpression
+ <- LogicalORExpression __
+    "?" __ AssignmentExpression __
+    ":" __ AssignmentExpression
+    {
+      return new ConditionalExpression($1, $5, $9);
+    }
+  / LogicalORExpression
+
+ConditionalExpressionNoIn
+ <- LogicalORExpressionNoIn __
+    "?" __ AssignmentExpression __
+    ":" __ AssignmentExpressionNoIn
+    {
+      return new ConditionalExpression($1, $5, $9);
+    }
+  / LogicalORExpressionNoIn
+
+AssignmentExpression
+ <- LeftHandSideExpression __
+    "=" !"=" __
+    AssignmentExpression
+    {
+      return new AssignmentExpression(AssignmentOperator.Assign, $1, $6);
+    }
+  / LeftHandSideExpression __
+    AssignmentOperator __
+    AssignmentExpression
+    {
+      return new AssignmentExpression($3, $1, $5);
+    }
+  / ConditionalExpression
+
+AssignmentExpressionNoIn
+ <- LeftHandSideExpression __
+    "=" !"=" __
+    AssignmentExpressionNoIn
+    {
+      return new AssignmentExpression(AssignmentOperator.Assign, $1, $6);
+    }
+  / LeftHandSideExpression __
+    AssignmentOperator __
+    AssignmentExpressionNoIn
+    {
+      return new AssignmentExpression($3, $1, $5);
+      
+    }
+  / ConditionalExpressionNoIn
+
+
+
+AssignmentOperator
+ <- "*="      { $$ = AssignmentOperator.MultiplyAssign; }
+  / "/="      { $$ = AssignmentOperator.DivideAssign; }
+  / "%="      { $$ = AssignmentOperator.ModulusAssign; }
+  / "+="      { $$ = AssignmentOperator.PlusAssign; }
+  / "-="      { $$ = AssignmentOperator.MinusAssign; }
+  / "<<="     { $$ = AssignmentOperator.LeftShiftArithmeticAssign; }
+  / ">>="     { $$ = AssignmentOperator.RightShiftArithmeticAssign; }
+  / ">>>="    { $$ = AssignmentOperator.RightShiftLogicalAssign; }
+  / "&="      { $$ = AssignmentOperator.BitAndAssign; }
+  / "^="      { $$ = AssignmentOperator.BitXorAssign; }
+  / "|="      { $$ = AssignmentOperator.BitOrAssign; }
+
+# string
+
+StringLiteral
+ <- '"' DoubleStringCharacter* '"' {
+      return new Literal($2.join(""));
+    }
+  / "'" SingleStringCharacter* "'" {
+      return new Literal($2.join(""));
+    }
+
+
+DoubleStringCharacter
+ <- !('"' / "\\" / LineTerminator) SourceCharacter { return $2; }
+  / "\\" EscapeSequence { return $1+$2; }
+  / LineContinuation
+
+SingleStringCharacter
+ <- !("'" / "\\" / LineTerminator) SourceCharacter { return $2; }
+  / "\\" EscapeSequence { return $1+$2; }
+  / LineContinuation
+
+LineContinuation
+ <- "\\" LineTerminatorSequence { return ""; }
+
+EscapeSequence
+ <- CharacterEscapeSequence
+  / "0" !DecimalDigit { return "\0"; }
+  / HexEscapeSequence
+  / UnicodeEscapeSequence
+
+CharacterEscapeSequence
+ <- SingleEscapeCharacter
+  / NonEscapeCharacter
+
+SingleEscapeCharacter
+ <- "'"
+  / '"'
+  / "\\"
+  / "b"  { return "\b"; }
+  / "f"  { return "\f"; }
+  / "n"  { return "\n"; }
+  / "r"  { return "\r"; }
+  / "t"  { return "\t"; }
+  / "v"  { return "\v"; }
+
+NonEscapeCharacter
+ <- !(EscapeCharacter / LineTerminator) SourceCharacter { return $1; }
+
+EscapeCharacter
+ <- SingleEscapeCharacter
+  / DecimalDigit
+  / "x"
+  / "u"
+
+HexEscapeSequence
+ <- "x" (HexDigit HexDigit) {
+      
+    }
+
+UnicodeEscapeSequence
+ <- "u" (HexDigit HexDigit HexDigit HexDigit) {
+      
+    }
+
+
+
+
+
+
+
+
+
+
+
+SourceCharacter
+  <- .
+
+DecimalDigit
+  <- [0-9]
+
+HexDigit
+  <- [0-9a-f]
+
+LineTerminator
+  <- [\n\r\u2028\u2029]
+
+LineTerminatorSequence
+  <- "\n"
+  / "\r\n"
+  / "\r"
+  / "\u2028"
+  / "\u2029"
+
+
+NUMBER <-
+  [1-9][0-9]+ "." [0-9]+ WS { $$ = new Literal(double.parse($1 + $2.join('') + "." + $4.join(''))); }
+  / [0-9]+ WS { $$ = new Literal(int.parse($1.join(''))); }
+
+
+WS <-
+  ([\t-\n\r ] / '\r\n')* { $$ = ""; }
+
+__
+  <- WS
+
+_
+  <- WS
+  
+EOF <-
+  !.  
+
+
+BS <-
+  ([\t-\n\r ] / '\r\n')*
+
+
+
+
+
+ObjectLiteral
+ <- '{' WS '}'                                      { $$ = new ObjectExpression({}); }
+ / '{' WS propertyNameAndValueList WS '}'           { $$ = new ObjectExpression($3); }
+ / '{' WS propertyNameAndValueList WS ','? WS '}'   { $$ = new ObjectExpression($3); }
+
+
+propertyNameAndValueList
+ <- propertyAssignment WS ( ',' WS propertyAssignment WS { $$ = $3; } )*   { $$ = _buildMap($1, $3); }
+
+
+propertyAssignment
+ <- propertyName WS ':' WS AssignmentExpression WS     { $$ = [$1, $5]; }
+    
+propertyName
+ <- Identifier      { $$ = $1.name; }
+ / StringLiteral    { $$ = $1; }
+ / NumericLiteral   { $$ = $1.toString(); }
+
+    
+propertySetParameterList
+ <- Identifier
+
+
+
+ArrayLiteral
+ <- '[' WS ElementList? WS ','? WS ']' WS { $$ = new ArrayExpression($3 != null ? $3 : []); }
+
+
+ElementList
+ <- AssignmentExpression  WS ( ',' WS AssignmentExpression  WS { $$ = $3; })*  { $$ = _buildList($1, $3); }
+
+
+
+

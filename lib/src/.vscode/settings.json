@@ -1,0 +1,11 @@
+{
+    // reload window is required to apply.
+    "watch-run.targetList": [
+        {
+            "target": "**/*.peg",
+            "task": "build_peg"
+        }
+    ],
+    "debug.inlineValues": true,
+    "debug.openDebug": "openOnSessionStart"
+}

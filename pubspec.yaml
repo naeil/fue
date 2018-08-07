@@ -1,0 +1,20 @@
+
+
+name: fue
+version: 0.0.1
+author: muhwa <spx@naver.com>
+description: fue
+homepage: https://github.com/naeil/fue
+
+environment:
+  sdk: '>=2.0.0-dev.17.0 <2.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  fue_style:
+    git: git://github.com/naeil/fue-style.git
+  html: ^0.13.3+2
+
+dev_dependencies:
+  test: ^1.2.0
