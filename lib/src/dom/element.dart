@@ -590,6 +590,10 @@ class Element extends dom.Element with Scriptable, CSSElement{
 
     style.applyStyle();
 
+    if(localName == "text" && style.textStyle != null){
+      createWidgetArgs["style"] = style.textStyle;
+    }
+
     var args =  new HashMap<String, dynamic>(equals: (a, b) => a.toUpperCase() == b.toUpperCase(),
         hashCode: (a) => a.toUpperCase().hashCode);
 
@@ -661,23 +665,19 @@ class Element extends dom.Element with Scriptable, CSSElement{
 
     }
 
-    this.widget = create_widget(this, data.trim(), args??{});
+    this.widget = createWidget(this, data.trim(), args??{});
 
     return this.widget;
   }
 
 
 
-  create_widget(Element el, String data, [arg]) {
+  createWidget(Element el, String data, [arg]) {
 
     var widget = null;
     var tagname = el.localName;
 
     var fnc = mapWidgets[tagname].genFnc;
-    
-    if(localName == "listview"){
-      //arg['padding'] = new EdgeInsets.symmetric(vertical: 8.0);
-    }
 
     if(fnc is create_with_data){
       widget = fnc(data, arg);
